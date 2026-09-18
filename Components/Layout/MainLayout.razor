@@ -1,0 +1,136 @@
+@inherits LayoutComponentBase
+@inject SessionService Session
+@inject NavigationManager Nav
+@inject IDialogService DialogService
+@inject ErpService Erp
+@inject IJSRuntime JS
+@implements IDisposable
+
+<MudThemeProvider Theme="_theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider FullWidth="true" MaxWidth="MaxWidth.Small" />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Dense="true" Fixed="true" Elevation="4">
+        @if (IsHomePage)
+        {
+            <MudText Typo="Typo.h6" Style="font-weight:700;">WMS Mek-Cast</MudText>
+        }
+        else
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Color="Color.Inherit"
+                           Size="Size.Medium" OnClick="GoBack" title="Indietro" />
+            <MudText Class="ml-2 flex-grow-1" Style="font-weight:600;">@Session.PageTitle</MudText>
+        }
+
+        <MudSpacer />
+
+        @if (Session.IsLoggedIn)
+        {
+            @if (!string.IsNullOrEmpty(Session.PrintContext))
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Print" Color="Color.Inherit"
+                               Size="Size.Medium" OnClick="OpenPrintDialog" title="Stampa etichetta" />
+            }
+
+            <MudMenu Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <ActivatorContent>
+                    <MudButton EndIcon="@Icons.Material.Filled.ArrowDropDown" Color="Color.Inherit"
+                               Size="Size.Small" Style="text-transform:none;font-weight:600;min-width:0;"
+                               OnClick="@context.ToggleAsync">
+                        @Session.OperatorCode
+                    </MudButton>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem OnClick="Logout">
+                        <MudIcon Icon="@Icons.Material.Filled.Logout" Size="Size.Small" Class="mr-2" />Logout
+                    </MudMenuItem>
+                </ChildContent>
+            </MudMenu>
+        }
+    </MudAppBar>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Small" Class="px-2 py-3">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    [Inject] private ILogger<MainLayout> _log { get; set; } = default!;
+
+    private static readonly MudTheme _theme = new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary             = "#3b82f6",
+            PrimaryContrastText = "#ffffff",
+            Secondary           = "#22d3ee",
+            Success             = "#22c55e",
+            Warning             = "#f59e0b",
+            Error               = "#ef4444",
+            Info                = "#38bdf8",
+            Background          = "#0f172a",
+            BackgroundGray      = "#111827",
+            Surface             = "#1e293b",
+            AppbarBackground    = "#1e293b",
+            AppbarText          = "#f1f5f9",
+            DrawerBackground    = "#0f172a",
+            TextPrimary         = "#f1f5f9",
+            TextSecondary       = "#94a3b8",
+            ActionDefault       = "#94a3b8",
+            Divider             = "#334155",
+        }
+    };
+
+    private bool IsHomePage  => Nav.Uri == Nav.BaseUri || Nav.Uri.TrimEnd('/').EndsWith("/home");
+    private bool IsLoginPage => Nav.Uri.TrimEnd('/').EndsWith("/login");
+
+    protected override void OnInitialized() => Session.OnChange += StateHasChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!Session.IsLoggedIn)
+            await TryRestoreSessionAsync();
+
+        if (!Session.IsLoggedIn && !IsLoginPage)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+    }
+
+    private async Task TryRestoreSessionAsync()
+    {
+        try
+        {
+            var code  = await JS.InvokeAsync<string?>("localStorage.getItem", "mek-op-code");
+            var name  = await JS.InvokeAsync<string?>("localStorage.getItem", "mek-op-name");
+            if (!string.IsNullOrEmpty(code) && !string.IsNullOrEmpty(name))
+            {
+                var grp = await JS.InvokeAsync<string?>("localStorage.getItem", "mek-op-group") ?? "";
+                Session.Login(code, name, grp);
+            }
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "TryRestoreSessionAsync"); }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/home");
+
+    private async Task Logout()
+    {
+        await JS.InvokeVoidAsync("localStorage.removeItem", "mek-op-code");
+        await JS.InvokeVoidAsync("localStorage.removeItem", "mek-op-name");
+        await JS.InvokeVoidAsync("localStorage.removeItem", "mek-op-group");
+        Session.Logout();
+        Nav.NavigateTo("/login");
+    }
+
+    private Task OpenPrintDialog() => DialogService.ShowAsync<PrintDialog>("Stampa etichetta");
+
+    public void Dispose() => Session.OnChange -= StateHasChanged;
+}

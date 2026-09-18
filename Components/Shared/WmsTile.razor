@@ -1,0 +1,15 @@
+@* Tile menu home: icona + etichetta, bersaglio touch ampio *@
+
+<div class="mek-tile" @onclick="OnClickHandler">
+    <MudIcon Icon="@Icon" Style="@($"font-size:42px;color:{IconColor};")" />
+    <span class="mek-tile-label">@Label</span>
+</div>
+
+@code {
+    [Parameter] public string Icon { get; set; } = Icons.Material.Filled.Apps;
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string IconColor { get; set; } = "#3b82f6";
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    private Task OnClickHandler() => OnClick.InvokeAsync();
+}

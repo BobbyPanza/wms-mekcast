@@ -1,0 +1,18 @@
+@* Badge giacenza con colore in base alla quantità *@
+
+<MudChip T="string" Size="@Size" Color="@BadgeColor" Variant="Variant.Filled"
+         Style="font-weight:700;font-family:monospace;">
+    @Quantity.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture) @UoM
+</MudChip>
+
+@code {
+    [Parameter] public decimal Quantity { get; set; }
+    [Parameter] public decimal MinStock { get; set; }
+    [Parameter] public string UoM { get; set; } = "";
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+
+    private Color BadgeColor =>
+        Quantity <= 0            ? Color.Error :
+        Quantity <= MinStock     ? Color.Warning :
+                                   Color.Success;
+}

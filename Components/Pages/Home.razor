@@ -1,0 +1,48 @@
+@page "/home"
+@inject SessionService Session
+@inject NavigationManager Nav
+
+<PageTitle>Menu — WMS Mek-Cast</PageTitle>
+
+<MudText Typo="Typo.body2" Style="color:#94a3b8;" Class="mb-3">
+    Operatore <strong>@Session.OperatorName</strong> · Magazzino <strong>@Session.CurrentWarehouse</strong>
+</MudText>
+
+<MudGrid Spacing="2">
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.Search" Label="Interroga Articolo"
+                 IconColor="#3b82f6" OnClick='() => Nav.NavigateTo("/article")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.PinDrop" Label="Interroga Locazione"
+                 IconColor="#22d3ee" OnClick='() => Nav.NavigateTo("/location")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.Download" Label="Carico"
+                 IconColor="#22c55e" OnClick='() => Nav.NavigateTo("/load")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.Upload" Label="Scarico"
+                 IconColor="#f59e0b" OnClick='() => Nav.NavigateTo("/unload")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.SwapHoriz" Label="Sposta Articoli"
+                 IconColor="#a78bfa" OnClick='() => Nav.NavigateTo("/move")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.AddLocationAlt" Label="Crea Locazione"
+                 IconColor="#38bdf8" OnClick='() => Nav.NavigateTo("/locations/new")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.LinkOff" Label="Disabbina Locazione"
+                 IconColor="#ef4444" OnClick='() => Nav.NavigateTo("/unassign")' />
+    </MudItem>
+    <MudItem xs="6" sm="4">
+        <WmsTile Icon="@Icons.Material.Filled.GridView" Label="Mappa Magazzino"
+                 IconColor="#14b8a6" OnClick='() => Nav.NavigateTo("/map")' />
+    </MudItem>
+</MudGrid>
+
+@code {
+    protected override void OnInitialized() => Session.ClearPrintContext();
+}

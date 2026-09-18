@@ -1,0 +1,118 @@
+@page "/unassign"
+@using System.Globalization
+@inject SessionService Session
+@inject ErpService Erp
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Disabbina Locazione</PageTitle>
+
+<MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">
+    Scansiona un articolo per vedere le locazioni abbinate. Si può disabbinare solo una locazione con giacenza zero.
+</MudText>
+
+<BarcodeInput Label="Scansiona o digita codice articolo" OnCodeScanned="OnScanned" AutoFocus="true" />
+
+@if (_loading)
+{
+    <div class="d-flex justify-center mt-6"><MudProgressCircular Indeterminate="true" /></div>
+}
+else if (_article is not null)
+{
+    <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+        <MudText Style="font-family:monospace;font-weight:700;">@_article</MudText>
+        <MudText Typo="Typo.caption" Style="color:#94a3b8;">@_articleDesc</MudText>
+    </MudPaper>
+
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#38bdf8;">
+        Locazioni abbinate (@_locations.Count)
+    </MudText>
+
+    @if (_locations.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Nessuna locazione abbinata.</MudAlert>
+    }
+    else
+    {
+        @foreach (var l in _locations)
+        {
+            var canRemove = l.CurrentQty == 0m;
+            <MudPaper Class="pa-3 mb-2" Style="border-radius:8px;">
+                <div class="d-flex justify-space-between align-center">
+                    <div class="d-flex align-center gap-2">
+                        <MudText Style="font-family:monospace;font-weight:700;">@l.WarehouseCode / @l.LocationCode</MudText>
+                        @if (l.IsMain)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary">PRINC.</MudChip>
+                        }
+                    </div>
+                    <div class="d-flex align-center gap-2">
+                        <StockBadge Quantity="@l.CurrentQty" MinStock="0" UoM="" />
+                        <MudIconButton Icon="@Icons.Material.Filled.LinkOff"
+                                       Color="Color.Error" Size="Size.Medium"
+                                       Disabled="@(!canRemove)"
+                                       OnClick="() => ConfirmRemove(l)"
+                                       title="@(canRemove ? "Disabbina" : "Giacenza presente")" />
+                    </div>
+                </div>
+            </MudPaper>
+        }
+    }
+}
+else if (_searched)
+{
+    <MudAlert Severity="Severity.Warning" Class="mt-3">Articolo non trovato.</MudAlert>
+}
+
+@code {
+    private string? _article;
+    private string _articleDesc = "";
+    private List<ManagedLocationDto> _locations = [];
+    private bool _loading;
+    private bool _searched;
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle("Disabbina Locazione");
+        Session.ClearPrintContext();
+    }
+
+    private async Task OnScanned(string code)
+    {
+        _loading = true;
+        _article = null;
+        StateHasChanged();
+        try
+        {
+            var art = await Erp.GetArticleAsync(code);
+            _searched = true;
+            if (art is null) { _loading = false; return; }
+            _article = art.Code;
+            _articleDesc = art.Description;
+            _locations = await Erp.GetArticleLocationsAsync(art.Code);
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+        finally { _loading = false; }
+    }
+
+    private async Task ConfirmRemove(ManagedLocationDto l)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Message"] = $"Disabbinare la locazione {l.WarehouseCode}/{l.LocationCode} dall'articolo {_article}?",
+            ["ConfirmText"] = "Disabbina",
+            ["Color"] = Color.Error
+        };
+        var dlg = await DialogService.ShowAsync<ConfirmDialog>("Conferma", parameters);
+        var res = await dlg.Result;
+        if (res is null || res.Canceled) return;
+
+        try
+        {
+            var (ok, msg) = await Erp.UnassignLocationAsync(_article!, l.WarehouseCode, l.LocationCode);
+            Snackbar.Add(msg, ok ? Severity.Success : Severity.Error);
+            if (ok) _locations = await Erp.GetArticleLocationsAsync(_article!);
+        }
+        catch (Exception ex) { Snackbar.Add($"Errore DB: {ex.Message}", Severity.Error); }
+    }
+}

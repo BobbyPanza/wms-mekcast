@@ -1,0 +1,217 @@
+@page "/load"
+@page "/unload"
+@using System.Globalization
+@inject SessionService Session
+@inject ErpService Erp
+@inject IConfiguration Config
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@Title</PageTitle>
+
+@if (_step == 0)
+{
+    <MudText Typo="Typo.h6" Class="mb-3">@Title — scansiona articolo</MudText>
+    <BarcodeInput OnCodeScanned="OnArticleScanned" AutoFocus="true" />
+
+    @if (_article is not null)
+    {
+        <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+            <MudText Style="font-family:monospace;font-weight:700;">@_article.Code</MudText>
+            <MudText Typo="Typo.body2" Style="color:#94a3b8;">@_article.Description</MudText>
+            <div class="d-flex align-center gap-2 mt-1">
+                <MudText Typo="Typo.caption" Style="color:#94a3b8;">Stock totale:</MudText>
+                <StockBadge Quantity="@_article.TotalStock" MinStock="0" UoM="@_article.UoM" />
+            </div>
+        </MudPaper>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-3"
+                   Size="Size.Large" OnClick="() => _step = 1">SCEGLI LOCAZIONE →</MudButton>
+    }
+}
+
+@if (_step == 1)
+{
+    <MudText Typo="Typo.body2" Class="mb-1"><strong>@_article?.Code</strong> — @_article?.Description</MudText>
+    <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">
+        Magazzino corrente: <strong>@Session.CurrentWarehouse</strong>
+    </MudText>
+    <BarcodeInput Label="Scansiona o digita locazione" OnCodeScanned="OnLocationScanned" AutoFocus="true" />
+
+    @if (_linked.Count > 0)
+    {
+        <MudText Typo="Typo.caption" Class="mt-3 mb-1" Style="color:#94a3b8;">
+            Locazioni collegate alla parte in @Session.CurrentWarehouse — tocca per selezionare
+        </MudText>
+        <div class="d-flex flex-wrap gap-2">
+            @foreach (var l in _linked)
+            {
+                var selected = l.LocationCode == _locationCode && l.WarehouseCode == _warehouse;
+                <MudPaper Class="pa-3" @onclick="() => SelectLinkedLocation(l)"
+                          Style="@($"border-radius:10px;cursor:pointer;min-width:130px;{(selected ? "border:2px solid var(--mud-palette-primary);" : "")}")">
+                    <MudText Style="font-family:monospace;font-weight:700;">@l.LocationCode</MudText>
+                    <StockBadge Quantity="@l.CurrentQty" MinStock="0" UoM="@(_article?.UoM ?? "")" />
+                </MudPaper>
+            }
+        </div>
+    }
+
+    @if (_locationCode is not null)
+    {
+        <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+            <div class="d-flex justify-space-between align-center">
+                <MudText Style="font-family:monospace;font-weight:700;">@_warehouse / @_locationCode</MudText>
+                <StockBadge Quantity="@_currentQty" MinStock="0" UoM="@(_article?.UoM ?? "")" />
+            </div>
+            <MudText Typo="Typo.caption" Style="color:#94a3b8;">Giacenza attuale in questa locazione</MudText>
+        </MudPaper>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-3"
+                   Size="Size.Large" OnClick="() => _step = 2">AVANTI →</MudButton>
+    }
+}
+
+@if (_step == 2)
+{
+    <MudText Typo="Typo.h6" Class="mb-1">Quantità da @(IsUnload ? "scaricare" : "caricare")</MudText>
+    <MudText Typo="Typo.caption" Class="mb-3" Style="color:#94a3b8;">
+        @_article?.Code — @_warehouse / @_locationCode — attuale @QtyFmt(_currentQty) @_article?.UoM
+    </MudText>
+    <MudNumericField @bind-Value="_qty" Label="Quantità" Variant="Variant.Outlined"
+                     Min="0.001m" Step="1m" Culture="@CultureInfo.CurrentCulture"
+                     Class="mb-3 mek-qty-focus" />
+
+    @if (IsUnload && _qty > _currentQty)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-2">
+            Quantità superiore alla giacenza (@QtyFmt(_currentQty)).
+        </MudAlert>
+    }
+
+    <MudButton Variant="Variant.Filled" Color="@(IsUnload ? Color.Warning : Color.Success)"
+               FullWidth="true" Size="Size.Large"
+               StartIcon="@(IsUnload ? Icons.Material.Filled.Upload : Icons.Material.Filled.Download)"
+               OnClick="Confirm" Disabled="@(_qty <= 0 || _busy)">
+        @if (_busy) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+        else { <span>CONFERMA @(IsUnload ? "SCARICO" : "CARICO")</span> }
+    </MudButton>
+}
+
+@if (_step == 3)
+{
+    <div class="d-flex flex-column align-center mt-6 gap-3">
+        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="font-size:80px;color:#22c55e;" />
+        <MudText Typo="Typo.h6" Style="color:#22c55e;font-weight:700;">
+            @(IsUnload ? "Scarico" : "Carico") completato!
+        </MudText>
+        <MudPaper Class="pa-3 w-100" Style="border-radius:10px;">
+            <MudText Typo="Typo.body2" Style="text-align:center;">
+                <strong>@QtyFmt(_qty) @_article?.UoM</strong> di <strong>@_article?.Code</strong><br />
+                @(IsUnload ? "da" : "in") <code>@_warehouse / @_locationCode</code>
+            </MudText>
+        </MudPaper>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                   StartIcon="@Icons.Material.Filled.Refresh" OnClick="Reset">NUOVA OPERAZIONE</MudButton>
+        <MudButton Variant="Variant.Text" FullWidth="true" OnClick='() => Nav.NavigateTo("/home")'>Torna al menu</MudButton>
+    </div>
+}
+
+@code {
+    private int _step;
+    private ArticleDto? _article;
+    private List<ManagedLocationDto> _linked = [];
+    private string? _locationCode;
+    private string _warehouse = "";
+    private decimal _currentQty;
+    private decimal _qty = 1;
+    private bool _busy;
+    private int _lastFocused = -1;
+
+    private bool IsUnload => Nav.Uri.TrimEnd('/').EndsWith("/unload");
+    private string Title => IsUnload ? "Scarico" : "Carico";
+    private static string QtyFmt(decimal q) => q.ToString("0.###", CultureInfo.CurrentCulture);
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle(Title);
+        Session.ClearPrintContext();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_step == 2 && _lastFocused != 2)
+        {
+            _lastFocused = 2;
+            await JS.InvokeVoidAsync("eval",
+                "setTimeout(()=>{var el=document.querySelector('.mek-qty-focus input');if(el){el.focus();el.select();}},80)");
+        }
+        else if (_step != 2) { _lastFocused = _step; }
+    }
+
+    private async Task OnArticleScanned(string code)
+    {
+        try
+        {
+            _article = await Erp.GetArticleAsync(code);
+            if (_article is null) { Snackbar.Add($"Articolo {code} non trovato", Severity.Error); return; }
+
+            // tutte le locazioni collegate (L_MLPA) della parte nel magazzino corrente, anche a giacenza 0
+            _linked = (await Erp.GetArticleLocationsAsync(_article.Code))
+                .Where(l => l.WarehouseCode == Session.CurrentWarehouse)
+                .OrderByDescending(l => l.CurrentQty)
+                .ToList();
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+    }
+
+    private void SelectLinkedLocation(ManagedLocationDto l)
+    {
+        _locationCode = l.LocationCode;
+        _warehouse    = l.WarehouseCode;
+        _currentQty   = l.CurrentQty;
+    }
+
+    private async Task OnLocationScanned(string code)
+    {
+        var lc = code.Trim().ToUpper();
+        try
+        {
+            var mg = await Erp.GetLocationWarehouseAsync(lc, Session.CurrentWarehouse);
+            if (mg is null)
+            {
+                Snackbar.Add($"Locazione {lc} non trovata in anagrafica (creala prima)", Severity.Warning);
+                return;
+            }
+            _locationCode = lc;
+            _warehouse = mg;
+            // giacenza attuale: dalle locazioni dell'articolo
+            _currentQty = _article?.Locations
+                .FirstOrDefault(l => l.LocationCode == lc && l.WarehouseCode == mg)?.Quantity ?? 0m;
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+    }
+
+    private async Task Confirm()
+    {
+        if (_article is null || _locationCode is null) return;
+        _busy = true;
+        try
+        {
+            var causal = IsUnload
+                ? (Config["Wms:UnloadCausal"] ?? "SCAR")
+                : (Config["Wms:LoadCausal"] ?? "CAR");
+            var refCode = $"WMS-{(IsUnload ? "SCAR" : "CAR")}-{DateTime.Now:yyyyMMddHHmmss}";
+            var (ok, msg, _) = await Erp.InsertMovAsync(new ErpMovRequest(
+                _article.Code, causal, _qty, _warehouse, _locationCode, Session.OperatorCode!, refCode));
+            if (ok) { _step = 3; Snackbar.Add(msg, Severity.Success); }
+            else Snackbar.Add(msg, Severity.Error);
+        }
+        catch (Exception ex) { Snackbar.Add($"Errore DB: {ex.Message}", Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private void Reset()
+    {
+        _step = 0; _article = null; _linked = []; _locationCode = null;
+        _warehouse = ""; _currentQty = 0; _qty = 1; _lastFocused = -1;
+    }
+}

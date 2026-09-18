@@ -1,0 +1,110 @@
+@inject SessionService Session
+@inject PrintService Print
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_template is null)
+        {
+            <MudAlert Severity="Severity.Warning">
+                Nessun template di stampa configurato per il contesto "@Session.PrintContext".
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.subtitle1" Class="mb-1"><strong>@_template.Name</strong></MudText>
+            <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">
+                Report: <code>@_template.ReportName</code>
+            </MudText>
+
+            @if (!Print.IsConfigured)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">
+                    Printer Manager non ancora configurato (PrintService:IntesiPrinterManagerUrl).
+                    I valori sono compilati; abilita la stampa valorizzando la config.
+                </MudAlert>
+            }
+
+            @foreach (var p in _template.Params)
+            {
+                <MudTextField @bind-Value="_values[p.ParamName]"
+                              Label="@($"{p.Label}{(p.IsRequired ? " *" : "")}")"
+                              Variant="Variant.Outlined" Class="mb-2" />
+            }
+
+            <MudNumericField @bind-Value="_copies" Label="Copie" Min="1" Max="50"
+                             Variant="Variant.Outlined" Class="mb-2" />
+
+            @if (_printers.Count > 0)
+            {
+                <MudSelect T="string" @bind-Value="_printer" Label="Stampante (opzionale)"
+                           Variant="Variant.Outlined" Clearable="true">
+                    @foreach (var pr in _printers)
+                    {
+                        <MudSelectItem Value="@pr">@pr</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annulla</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_template is null || _printing)"
+                   StartIcon="@Icons.Material.Filled.Print" OnClick="DoPrint">
+            @if (_printing) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+            else { <span>Stampa</span> }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private PrintTemplate? _template;
+    private readonly Dictionary<string, string> _values = new();
+    private int _copies = 1;
+    private string? _printer;
+    private IReadOnlyList<string> _printers = [];
+    private bool _printing;
+
+    protected override void OnInitialized()
+    {
+        _template = Print.GetTemplate(Session.PrintContext);
+        _printers = Print.GetInstalledPrinters();
+        if (_template is not null)
+        {
+            foreach (var p in _template.Params)
+            {
+                var val = "";
+                if (!string.IsNullOrEmpty(p.AutoFillKey) &&
+                    Session.PrintAutoFill.TryGetValue(p.AutoFillKey, out var v))
+                    val = v;
+                _values[p.ParamName] = val;
+            }
+        }
+    }
+
+    private async Task DoPrint()
+    {
+        if (_template is null) return;
+
+        var missing = _template.Params
+            .Where(p => p.IsRequired && string.IsNullOrWhiteSpace(_values.GetValueOrDefault(p.ParamName)))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            Snackbar.Add($"Campi obbligatori mancanti: {string.Join(", ", missing.Select(m => m.Label))}", Severity.Warning);
+            return;
+        }
+
+        _printing = true;
+        var (ok, msg) = await Print.PrintAsync(_template, _template.Name, _values, _copies, _printer);
+        _printing = false;
+
+        Snackbar.Add(msg, ok ? Severity.Success : Severity.Error);
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

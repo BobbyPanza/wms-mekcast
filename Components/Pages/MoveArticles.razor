@@ -1,0 +1,218 @@
+@page "/move"
+@using System.Globalization
+@inject SessionService Session
+@inject ErpService Erp
+@inject IConfiguration Config
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Sposta Articoli</PageTitle>
+
+@* ─── Step 0: locazione origine ─── *@
+@if (_step == 0)
+{
+    <MudText Typo="Typo.h6" Class="mb-1">Locazione origine</MudText>
+    <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">Magazzino corrente: <strong>@Session.CurrentWarehouse</strong></MudText>
+    <BarcodeInput Label="Scansiona o digita locazione origine" OnCodeScanned="OnSourceScanned" AutoFocus="true" />
+}
+
+@* ─── Step 1: selezione articoli ─── *@
+@if (_step == 1)
+{
+    <MudText Typo="Typo.body2" Class="mb-1">Origine: <strong>@_srcWarehouse / @_srcLocation</strong></MudText>
+    <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">Seleziona uno o più articoli e imposta la quantità</MudText>
+
+    @if (_lines.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning">Locazione vuota — niente da spostare.</MudAlert>
+        <MudButton Class="mt-3" OnClick="() => _step = 0">← Cambia origine</MudButton>
+    }
+    else
+    {
+        @foreach (var line in _lines)
+        {
+            <div class="@($"mek-row {(line.Selected ? "selected" : "")}")" @onclick="() => Toggle(line)">
+                <div class="d-flex align-center gap-2">
+                    <MudCheckBox T="bool" Value="line.Selected" ValueChanged="@(v => SetSelected(line, v))"
+                                 Color="Color.Primary" Dense="true" @onclick:stopPropagation="true" />
+                    <div class="flex-grow-1">
+                        <MudText Style="font-family:monospace;font-weight:700;">@line.ArticleCode</MudText>
+                        <MudText Typo="Typo.caption" Style="color:#94a3b8;">@line.ArticleDesc</MudText>
+                    </div>
+                    <StockBadge Quantity="@line.Available" MinStock="0" UoM="@line.UoM" />
+                </div>
+                @if (line.Selected)
+                {
+                    <div @onclick:stopPropagation="true" class="mt-2">
+                        <MudNumericField @bind-Value="line.Quantity" Label="Quantità da spostare"
+                                         Variant="Variant.Outlined" Min="0.001m" Max="@line.Available" Step="1m"
+                                         Culture="@CultureInfo.CurrentCulture" Margin="Margin.Dense" />
+                    </div>
+                }
+            </div>
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-3" Size="Size.Large"
+                   Disabled="@(_lines.All(l => !l.Selected))" OnClick="GoToDest">
+            DESTINAZIONE → (@_lines.Count(l => l.Selected) selez.)
+        </MudButton>
+    }
+}
+
+@* ─── Step 2: locazione destinazione ─── *@
+@if (_step == 2)
+{
+    <MudText Typo="Typo.body2" Class="mb-1">@_lines.Count(l => l.Selected) articoli da <strong>@_srcLocation</strong></MudText>
+    <MudText Typo="Typo.h6" Class="mb-2">Locazione <strong>destinazione</strong></MudText>
+    <BarcodeInput Label="Scansiona o digita locazione destinazione" OnCodeScanned="OnDestScanned" AutoFocus="true" />
+
+    @if (_dstLocation is not null)
+    {
+        <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+            <MudText Style="font-family:monospace;font-weight:700;color:#22c55e;">→ @_dstWarehouse / @_dstLocation</MudText>
+        </MudPaper>
+
+        <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+            <MudText Typo="Typo.subtitle2" Class="mb-2" Style="color:#38bdf8;">RIEPILOGO</MudText>
+            @foreach (var l in _lines.Where(x => x.Selected))
+            {
+                <div class="d-flex justify-space-between mb-1">
+                    <MudText Typo="Typo.body2" Style="font-family:monospace;">@l.ArticleCode</MudText>
+                    <MudText Typo="Typo.body2" Style="font-weight:700;color:#3b82f6;">@QtyFmt(l.Quantity) @l.UoM</MudText>
+                </div>
+            }
+        </MudPaper>
+
+        <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true" Class="mt-3" Size="Size.Large"
+                   StartIcon="@Icons.Material.Filled.Check" OnClick="Confirm" Disabled="@_busy">
+            @if (_busy) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+            else { <span>CONFERMA SPOSTAMENTO</span> }
+        </MudButton>
+    }
+}
+
+@* ─── Step 3: esito ─── *@
+@if (_step == 3)
+{
+    <div class="d-flex flex-column align-center mt-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="font-size:64px;color:#22c55e;" />
+        <MudText Typo="Typo.h6" Style="font-weight:700;">Spostamento eseguito</MudText>
+    </div>
+    <MudPaper Class="pa-3 mt-3" Style="border-radius:10px;">
+        @foreach (var r in _results)
+        {
+            <div class="d-flex align-center gap-2 mb-1">
+                <MudIcon Icon="@(r.Ok ? Icons.Material.Filled.Check : Icons.Material.Filled.Error)"
+                         Color="@(r.Ok ? Color.Success : Color.Error)" Size="Size.Small" />
+                <MudText Typo="Typo.body2">@r.Msg</MudText>
+            </div>
+        }
+    </MudPaper>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-3"
+               StartIcon="@Icons.Material.Filled.Refresh" OnClick="Reset">NUOVO SPOSTAMENTO</MudButton>
+    <MudButton Variant="Variant.Text" FullWidth="true" OnClick='() => Nav.NavigateTo("/home")'>Torna al menu</MudButton>
+}
+
+@code {
+    private int _step;
+    private string _srcLocation = "";
+    private string _srcWarehouse = "";
+    private string? _dstLocation;
+    private string _dstWarehouse = "";
+    private List<MoveLine> _lines = [];
+    private List<(bool Ok, string Msg)> _results = [];
+    private bool _busy;
+
+    private static string QtyFmt(decimal q) => q.ToString("0.###", CultureInfo.CurrentCulture);
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle("Sposta Articoli");
+        Session.ClearPrintContext();
+    }
+
+    private async Task OnSourceScanned(string code)
+    {
+        try
+        {
+            var loc = await Erp.GetLocationAsync(code, Session.CurrentWarehouse);
+            if (loc is null) { Snackbar.Add($"Locazione {code} non trovata", Severity.Warning); return; }
+            _srcLocation = loc.LocationCode;
+            _srcWarehouse = loc.WarehouseCode;
+            _lines = loc.Contents.Select(c => new MoveLine
+            {
+                ArticleCode = c.ArticleCode,
+                ArticleDesc = c.ArticleDesc,
+                UoM = c.UoM,
+                Available = c.Quantity,
+                Quantity = c.Quantity,
+                Selected = false
+            }).ToList();
+            _step = 1;
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+    }
+
+    private void Toggle(MoveLine line) => SetSelected(line, !line.Selected);
+    private void SetSelected(MoveLine line, bool v) => line.Selected = v;
+
+    private void GoToDest()
+    {
+        var bad = _lines.Where(l => l.Selected && (l.Quantity <= 0 || l.Quantity > l.Available)).ToList();
+        if (bad.Count > 0)
+        {
+            Snackbar.Add("Quantità non valida su alcuni articoli", Severity.Warning);
+            return;
+        }
+        _dstLocation = null;
+        _dstWarehouse = "";
+        _step = 2;
+    }
+
+    private async Task OnDestScanned(string code)
+    {
+        var lc = code.Trim().ToUpper();
+        try
+        {
+            var mg = await Erp.GetLocationWarehouseAsync(lc, Session.CurrentWarehouse);
+            if (mg is null) { Snackbar.Add($"Locazione {lc} non trovata in anagrafica (creala prima)", Severity.Warning); return; }
+            if (lc == _srcLocation && mg == _srcWarehouse) { Snackbar.Add("Origine e destinazione coincidono", Severity.Warning); return; }
+            _dstLocation = lc;
+            _dstWarehouse = mg;
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+    }
+
+    private async Task Confirm()
+    {
+        if (_dstLocation is null) return;
+        _busy = true;
+        _results = [];
+        var outCausal = Config["Wms:MoveOutCausal"] ?? "SMI";
+        var inCausal  = Config["Wms:MoveInCausal"]  ?? "CMI";
+        var refCode = $"WMS-MOV-{DateTime.Now:yyyyMMddHHmmss}";
+        try
+        {
+            foreach (var l in _lines.Where(x => x.Selected))
+            {
+                var (ok, msg) = await Erp.ExecuteMoveAsync(
+                    l.ArticleCode, _srcWarehouse, _srcLocation,
+                    _dstWarehouse, _dstLocation, l.Quantity,
+                    Session.OperatorCode!, outCausal, inCausal, refCode);
+                _results.Add((ok, msg));
+            }
+            _step = 3;
+            var okCount = _results.Count(r => r.Ok);
+            Snackbar.Add($"{okCount}/{_results.Count} spostamenti riusciti",
+                okCount == _results.Count ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex) { Snackbar.Add($"Errore DB: {ex.Message}", Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private void Reset()
+    {
+        _step = 0; _srcLocation = ""; _srcWarehouse = "";
+        _dstLocation = null; _dstWarehouse = ""; _lines = []; _results = [];
+    }
+}

@@ -1,0 +1,90 @@
+:root {
+    --mek-surface: #1e293b;
+    --mek-muted: #94a3b8;
+}
+
+html, body {
+    background: #0f172a;
+    font-family: 'Roboto', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Campo barcode più grande e leggibile su terminali */
+.mek-barcode-field input {
+    font-size: 1.25rem !important;
+    font-family: monospace;
+    letter-spacing: 0.5px;
+}
+
+/* Quantità: focus + select dall'ingresso nello step */
+.mek-qty-focus input {
+    font-size: 1.6rem !important;
+    text-align: center;
+    font-weight: 700;
+}
+
+code, .mek-mono {
+    font-family: monospace;
+}
+
+/* Tile menu home — bersagli touch ampi */
+.mek-tile {
+    border-radius: 14px;
+    padding: 18px 14px;
+    background: var(--mek-surface);
+    border: 1px solid #334155;
+    cursor: pointer;
+    transition: transform .08s ease, border-color .12s ease;
+    height: 100%;
+    min-height: 108px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
+}
+.mek-tile:active { transform: scale(0.97); }
+.mek-tile:hover { border-color: #3b82f6; }
+.mek-tile .mek-tile-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.15;
+}
+
+/* Mappa magazzino — griglia cellette */
+.mek-map-scroll { overflow-x: auto; padding-bottom: 6px; }
+.mek-cellgrid { display: grid; gap: 4px; width: max-content; }
+.mek-cell {
+    height: 36px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+    font-size: 0.72rem;
+    cursor: pointer;
+    user-select: none;
+    transition: transform .06s ease;
+}
+.mek-cell:active { transform: scale(0.9); }
+/* libera: contorno verde, vuota */
+.mek-cell.free { border: 2px solid #22c55e; color: #22c55e; background: transparent; }
+/* occupata: pieno rosso (forma diversa = leggibile anche per daltonici) */
+.mek-cell.occ  { background: #ef4444; color: #fff; font-weight: 700; border: 2px solid #ef4444; }
+.mek-cell.empty { background: transparent; cursor: default; }
+.mek-cell-lvl {
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #94a3b8; font-family: monospace; font-size: 0.8rem;
+}
+
+/* Riga elenco selezionabile (spostamento) */
+.mek-row {
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: #16233b;
+    border: 2px solid transparent;
+    cursor: pointer;
+}
+.mek-row.selected { border-color: #3b82f6; background: #1d2f4d; }

@@ -1,0 +1,85 @@
+@page "/locations/new"
+@inject SessionService Session
+@inject ErpService Erp
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Crea Locazione</PageTitle>
+
+<MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-3">
+    Magazzino corrente: <strong>@Session.CurrentWarehouse</strong>
+    <br />La locazione verrà creata in questo magazzino.
+</MudText>
+
+<MudPaper Class="pa-4" Style="border-radius:12px;">
+    <BarcodeInput @ref="_codeInput" Label="Codice locazione (scansiona o digita)"
+                  OnCodeScanned="OnCodeScanned" AutoFocus="true" />
+
+    <MudTextField @bind-Value="_code" Label="Codice locazione" Variant="Variant.Outlined"
+                  Class="mt-2 mb-2" Immediate="true"
+                  Style="font-family:monospace;text-transform:uppercase;" />
+
+    <MudTextField @bind-Value="_desc" Label="Descrizione (opzionale)" Variant="Variant.Outlined" Class="mb-3" />
+
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large"
+               StartIcon="@Icons.Material.Filled.AddLocationAlt" OnClick="Create" Disabled="@_busy">
+        @if (_busy) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+        else { <span>CREA LOCAZIONE</span> }
+    </MudButton>
+</MudPaper>
+
+@if (_created.Count > 0)
+{
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#22c55e;">Create in questa sessione</MudText>
+    @foreach (var c in _created)
+    {
+        <MudPaper Class="pa-2 mb-1" Style="border-radius:8px;">
+            <MudText Style="font-family:monospace;">@c</MudText>
+        </MudPaper>
+    }
+}
+
+@code {
+    private BarcodeInput? _codeInput;
+    private string _code = "";
+    private string _desc = "";
+    private bool _busy;
+    private readonly List<string> _created = [];
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle("Crea Locazione");
+        Session.ClearPrintContext();
+    }
+
+    private void OnCodeScanned(string code) => _code = code;
+
+    private async Task Create()
+    {
+        var code = _code.Trim().ToUpper();
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            Snackbar.Add("Inserisci il codice locazione", Severity.Warning);
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var mg = Session.CurrentWarehouse;
+            if (await Erp.LocationExistsAsync(mg, code))
+            {
+                Snackbar.Add($"Locazione {mg}/{code} già esistente", Severity.Warning);
+                _busy = false;
+                return;
+            }
+            await Erp.CreateLocationAsync(mg, code, string.IsNullOrWhiteSpace(_desc) ? null : _desc.Trim());
+            _created.Insert(0, $"{mg} / {code}{(string.IsNullOrWhiteSpace(_desc) ? "" : $" — {_desc.Trim()}")}");
+            Snackbar.Add($"Locazione {mg}/{code} creata", Severity.Success);
+            _code = "";
+            _desc = "";
+            if (_codeInput is not null) await _codeInput.FocusAsync();
+        }
+        catch (Exception ex) { Snackbar.Add($"Errore DB: {ex.Message}", Severity.Error); }
+        finally { _busy = false; }
+    }
+}

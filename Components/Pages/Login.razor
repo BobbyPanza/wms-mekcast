@@ -1,0 +1,86 @@
+@page "/login"
+@page "/"
+@layout MainLayout
+@inject SessionService Session
+@inject ErpService Erp
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Login — WMS Mek-Cast</PageTitle>
+
+<div class="d-flex flex-column align-center mt-8">
+    <MudIcon Icon="@Icons.Material.Filled.Warehouse" Style="font-size:64px;color:#3b82f6;" Class="mb-2" />
+    <MudText Typo="Typo.h5" Class="mb-1" Style="font-weight:700;">WMS Mek-Cast</MudText>
+    <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-5">Accesso operatore</MudText>
+
+    <MudPaper Class="pa-4 w-100" Style="max-width:380px;border-radius:14px;">
+        <MudTextField @ref="_codeField" @bind-Value="_code" Label="Codice operatore"
+                      Variant="Variant.Outlined" Class="mb-3" Immediate="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person"
+                      OnKeyDown="OnKeyDown" />
+        <MudTextField @bind-Value="_pin" Label="PIN" InputType="InputType.Password"
+                      Variant="Variant.Outlined" Class="mb-4" Immediate="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock"
+                      OnKeyDown="OnKeyDown" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large"
+                   OnClick="DoLogin" Disabled="@_busy">
+            @if (_busy) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+            else { <span>ACCEDI</span> }
+        </MudButton>
+    </MudPaper>
+</div>
+
+@code {
+    private MudTextField<string>? _codeField;
+    private string _code = "";
+    private string _pin = "";
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Session.IsLoggedIn) Nav.NavigateTo("/home");
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await DoLogin();
+    }
+
+    private async Task DoLogin()
+    {
+        if (string.IsNullOrWhiteSpace(_code))
+        {
+            Snackbar.Add("Inserisci il codice operatore", Severity.Warning);
+            return;
+        }
+        if (!Erp.IsConfigured)
+        {
+            Snackbar.Add("Connessione DB non configurata", Severity.Error);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var (ok, name, grp) = await Erp.TryLoginAsync(_code, _pin);
+            if (!ok)
+            {
+                Snackbar.Add("Credenziali non valide", Severity.Error);
+                _busy = false;
+                return;
+            }
+            var code = _code.Trim().ToUpper();
+            Session.Login(code, name ?? code, grp ?? "");
+            await JS.InvokeVoidAsync("localStorage.setItem", "mek-op-code", code);
+            await JS.InvokeVoidAsync("localStorage.setItem", "mek-op-name", name ?? code);
+            await JS.InvokeVoidAsync("localStorage.setItem", "mek-op-group", grp ?? "");
+            Nav.NavigateTo("/home");
+        }
+        catch
+        {
+            Snackbar.Add("Errore connessione DB", Severity.Error);
+            _busy = false;
+        }
+    }
+}

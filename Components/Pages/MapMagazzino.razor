@@ -1,0 +1,145 @@
+@page "/map"
+@using System.Globalization
+@using System.Text.RegularExpressions
+@inject SessionService Session
+@inject ErpService Erp
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Mappa Magazzino</PageTitle>
+
+@if (_loading)
+{
+    <div class="d-flex justify-center mt-6"><MudProgressCircular Indeterminate="true" /></div>
+}
+else if (_cells.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Class="mt-3">Nessuna locazione nel magazzino @Session.CurrentWarehouse.</MudAlert>
+}
+else
+{
+    @* Legenda + conteggi *@
+    <div class="d-flex flex-wrap align-center gap-4 mb-3">
+        <div class="d-flex align-center gap-2">
+            <span style="display:inline-block;width:22px;height:18px;border:2px solid #22c55e;border-radius:4px;"></span>
+            <MudText Typo="Typo.body2">Libere: <strong>@_freeCount</strong></MudText>
+        </div>
+        <div class="d-flex align-center gap-2">
+            <span style="display:inline-block;width:22px;height:18px;background:#ef4444;border-radius:4px;"></span>
+            <MudText Typo="Typo.body2">Occupate: <strong>@_occCount</strong></MudText>
+        </div>
+    </div>
+
+    @* Selettore corridoio — bersagli touch ampi *@
+    @if (_corridoi.Count > 1)
+    {
+        <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-1">Corridoio</MudText>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            @foreach (var c in _corridoi)
+            {
+                <MudButton Variant="@(c == _corr ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary" Size="Size.Medium"
+                           OnClick="() => SelectCorr(c)">@c</MudButton>
+            }
+        </div>
+    }
+
+    <MudText Typo="Typo.caption" Style="color:#94a3b8;" Class="mb-1">
+        Corridoio <strong>@_corr</strong> — tocca una cella per interrogarla
+    </MudText>
+
+    @* Griglia: una riga per livello (T in basso), colonne = posizioni *@
+    <div class="mek-map-scroll">
+        <div class="mek-cellgrid" style="@GridStyle()">
+            @foreach (var lvl in _levels)
+            {
+                <div class="mek-cell-lvl">@lvl</div>
+                @foreach (var pos in _positions)
+                {
+                    var cell = Find(_corr, lvl, pos);
+                    if (cell is null)
+                    {
+                        <div class="mek-cell empty">&nbsp;</div>
+                    }
+                    else
+                    {
+                        <MudTooltip Text="@CellTip(cell)">
+                            <div class="@($"mek-cell {(cell.Occupied ? "occ" : "free")}")"
+                                 @onclick="() => OpenCell(cell)">@pos</div>
+                        </MudTooltip>
+                    }
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private List<WarehouseCellDto> _cells = [];
+    private int _freeCount, _occCount;
+
+    private List<string> _corridoi = [];
+    private string _corr = "";
+    private List<string> _levels = [];
+    private List<string> _positions = [];
+    private readonly Dictionary<(string, string, string), WarehouseCellDto> _byKey = new();
+
+    // formato XXYZZ: corridoio (2 cifre) + livello (lettera) + posizione (2 cifre)
+    private static readonly Regex _rx = new(@"^(\d{2})([A-Za-z])(\d{2})$", RegexOptions.Compiled);
+    // T (terra) in basso, poi A..E salendo → ordine di stampa dall'alto: E,D,C,B,A,T
+    private static readonly string[] _levelOrder = ["E", "D", "C", "B", "A", "T"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.SetPageTitle("Mappa Magazzino");
+        Session.ClearPrintContext();
+        try
+        {
+            _cells = await Erp.GetWarehouseMapAsync();
+            _occCount  = _cells.Count(c => c.Occupied);
+            _freeCount = _cells.Count - _occCount;
+            foreach (var c in _cells)
+            {
+                var (corr, lvl, pos) = Parse(c.LocationCode);
+                _byKey[(corr, lvl, pos)] = c;
+            }
+            _corridoi = _cells.Select(c => Parse(c.LocationCode).corr).Distinct().OrderBy(x => x).ToList();
+            if (_corridoi.Count > 0) SelectCorr(_corridoi[0]);
+        }
+        catch { Snackbar.Add("Errore connessione DB", Severity.Error); }
+        finally { _loading = false; }
+    }
+
+    private void SelectCorr(string corr)
+    {
+        _corr = corr;
+        var inCorr = _cells.Where(c => Parse(c.LocationCode).corr == corr).ToList();
+        _levels = inCorr.Select(c => Parse(c.LocationCode).level).Distinct()
+            .OrderBy(l => { var i = Array.IndexOf(_levelOrder, l); return i < 0 ? 99 : i; })
+            .ThenBy(l => l).ToList();
+        _positions = inCorr.Select(c => Parse(c.LocationCode).pos).Distinct()
+            .OrderBy(p => int.TryParse(p, out var n) ? n : int.MaxValue).ThenBy(p => p).ToList();
+    }
+
+    private static (string corr, string level, string pos) Parse(string code)
+    {
+        var m = _rx.Match(code);
+        return m.Success
+            ? (m.Groups[1].Value, m.Groups[2].Value.ToUpperInvariant(), m.Groups[3].Value)
+            : ("—", "—", code);
+    }
+
+    private WarehouseCellDto? Find(string corr, string lvl, string pos) =>
+        _byKey.TryGetValue((corr, lvl, pos), out var c) ? c : null;
+
+    private string GridStyle() => $"grid-template-columns: 30px repeat({_positions.Count}, 38px);";
+
+    private static string CellTip(WarehouseCellDto c) =>
+        c.Occupied
+            ? $"{c.LocationCode} — {c.ItemCount} art., qtà {c.TotalQty.ToString("0.###", CultureInfo.CurrentCulture)}"
+            : $"{c.LocationCode} — libera";
+
+    private void OpenCell(WarehouseCellDto cell) =>
+        Nav.NavigateTo($"/location?code={Uri.EscapeDataString(cell.LocationCode)}");
+}

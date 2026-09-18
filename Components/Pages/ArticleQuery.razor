@@ -1,0 +1,128 @@
+@page "/article"
+@using System.Globalization
+@inject SessionService Session
+@inject ErpService Erp
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Interroga Articolo</PageTitle>
+
+<BarcodeInput Label="Scansiona o digita codice articolo" OnCodeScanned="OnScanned" AutoFocus="true" />
+
+@if (_loading)
+{
+    <div class="d-flex justify-center mt-6"><MudProgressCircular Indeterminate="true" /></div>
+}
+else if (_article is not null)
+{
+    <MudPaper Class="pa-3 mt-3" Style="border-radius:12px;">
+        <div class="d-flex justify-space-between align-start">
+            <div>
+                <MudText Style="font-family:monospace;font-weight:700;font-size:1.1rem;">@_article.Code</MudText>
+                <MudText Typo="Typo.body2" Style="color:#94a3b8;">@_article.Description</MudText>
+            </div>
+            <StockBadge Quantity="@_article.TotalStock" MinStock="0" UoM="@_article.UoM" Size="Size.Large" />
+        </div>
+    </MudPaper>
+
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#38bdf8;">
+        Giacenze per locazione (@_article.Locations.Count)
+    </MudText>
+    @if (_article.Locations.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Nessuna giacenza.</MudAlert>
+    }
+    else
+    {
+        @foreach (var l in _article.Locations)
+        {
+            <MudPaper Class="pa-3 mb-2" Style="border-radius:8px;">
+                <div class="d-flex justify-space-between align-center">
+                    <div class="d-flex align-center gap-2">
+                        <MudText Style="font-family:monospace;font-weight:700;">@l.WarehouseCode / @l.LocationCode</MudText>
+                        @if (l.IsMainWithdrawal)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary">PRINC.</MudChip>
+                        }
+                    </div>
+                    <StockBadge Quantity="@l.Quantity" MinStock="@l.MinQty" UoM="@_article.UoM" />
+                </div>
+            </MudPaper>
+        }
+    }
+
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#38bdf8;">
+        Ultimi movimenti
+    </MudText>
+    @if (_article.RecentMovements.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Nessun movimento recente.</MudAlert>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Striped="true" Style="background:transparent;">
+            <thead>
+                <tr><th>Data</th><th>Causale</th><th style="text-align:right;">Qtà</th><th>Loc.</th><th>Op.</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var m in _article.RecentMovements)
+                {
+                    <tr>
+                        <td>@m.Timestamp.ToString("dd/MM HH:mm")</td>
+                        <td>@m.CausalCode</td>
+                        <td style="text-align:right;font-family:monospace;">@m.Quantity.ToString("0.###", CultureInfo.CurrentCulture)</td>
+                        <td style="font-family:monospace;">@m.LocationCode</td>
+                        <td>@m.OperatorCode</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+else if (_searched)
+{
+    <MudAlert Severity="Severity.Warning" Class="mt-3">Articolo non trovato.</MudAlert>
+}
+
+@code {
+    private ArticleDto? _article;
+    private bool _loading;
+    private bool _searched;
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle("Interroga Articolo");
+        Session.ClearPrintContext();
+    }
+
+    private async Task OnScanned(string code)
+    {
+        _loading = true;
+        _article = null;
+        StateHasChanged();
+        try
+        {
+            _article = await Erp.GetArticleAsync(code);
+            _searched = true;
+            if (_article is not null)
+            {
+                Session.SetPrintContext("ARTICLE", new()
+                {
+                    ["PACOD"] = _article.Code,
+                    ["PADSC"] = _article.Description
+                });
+            }
+            else
+            {
+                Session.ClearPrintContext();
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Errore connessione DB", Severity.Error);
+        }
+        finally { _loading = false; }
+    }
+
+    public void Dispose() => Session.ClearPrintContext();
+}

@@ -1,0 +1,135 @@
+@page "/location"
+@using System.Globalization
+@inject SessionService Session
+@inject ErpService Erp
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Interroga Locazione</PageTitle>
+
+<BarcodeInput Label="Scansiona o digita locazione" OnCodeScanned="OnScanned" AutoFocus="true" />
+
+@if (_loading)
+{
+    <div class="d-flex justify-center mt-6"><MudProgressCircular Indeterminate="true" /></div>
+}
+else if (_location is not null)
+{
+    <MudPaper Class="pa-3 mt-3" Style="border-radius:12px;">
+        <MudText Style="font-family:monospace;font-weight:700;font-size:1.2rem;">
+            @_location.WarehouseCode / @_location.LocationCode
+        </MudText>
+        @if (!string.IsNullOrWhiteSpace(_location.LocationDesc))
+        {
+            <MudText Typo="Typo.body2" Style="color:#94a3b8;">@_location.LocationDesc</MudText>
+        }
+    </MudPaper>
+
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#38bdf8;">
+        Articoli presenti (@_location.Contents.Count)
+    </MudText>
+    @if (_location.Contents.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Locazione vuota.</MudAlert>
+    }
+    else
+    {
+        @foreach (var c in _location.Contents)
+        {
+            <MudPaper Class="pa-3 mb-2" Style="border-radius:8px;">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Style="font-family:monospace;font-weight:700;">@c.ArticleCode</MudText>
+                        <MudText Typo="Typo.caption" Style="color:#94a3b8;">@c.ArticleDesc</MudText>
+                    </div>
+                    <StockBadge Quantity="@c.Quantity" MinStock="0" UoM="@c.UoM" />
+                </div>
+            </MudPaper>
+        }
+    }
+
+    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2" Style="color:#38bdf8;">Ultimi movimenti</MudText>
+    @if (_location.RecentMovements.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Nessun movimento recente.</MudAlert>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Striped="true" Style="background:transparent;">
+            <thead>
+                <tr><th>Data</th><th>Caus.</th><th>Articolo</th><th style="text-align:right;">Qtà</th><th>Op.</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var m in _location.RecentMovements)
+                {
+                    <tr>
+                        <td>@m.Timestamp.ToString("dd/MM HH:mm")</td>
+                        <td>@m.CausalCode</td>
+                        <td style="font-family:monospace;">@m.ArticleCode</td>
+                        <td style="text-align:right;font-family:monospace;">@m.Quantity.ToString("0.###", CultureInfo.CurrentCulture)</td>
+                        <td>@m.OperatorCode</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+else if (_searched)
+{
+    <MudAlert Severity="Severity.Warning" Class="mt-3">Locazione non trovata in anagrafica.</MudAlert>
+}
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "code")]
+    public string? Code { get; set; }
+
+    private LocationDto? _location;
+    private bool _loading;
+    private bool _searched;
+    private bool _autoSearched;
+
+    protected override void OnInitialized()
+    {
+        Session.SetPageTitle("Interroga Locazione");
+        Session.ClearPrintContext();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // arrivo dalla mappa magazzino con ?code=... → interroga subito
+        if (!_autoSearched && !string.IsNullOrWhiteSpace(Code))
+        {
+            _autoSearched = true;
+            await OnScanned(Code!);
+        }
+    }
+
+    private async Task OnScanned(string code)
+    {
+        _loading = true;
+        _location = null;
+        StateHasChanged();
+        try
+        {
+            // solo magazzino corrente (app monoscaffale → MS)
+            _location = await Erp.GetLocationAsync(code, Session.CurrentWarehouse);
+            _searched = true;
+            if (_location is not null)
+            {
+                Session.SetPrintContext("LOCATION", new()
+                {
+                    ["MGCOD"] = _location.WarehouseCode,
+                    ["LCCOD"] = _location.LocationCode
+                });
+            }
+            else { Session.ClearPrintContext(); }
+        }
+        catch
+        {
+            Snackbar.Add("Errore connessione DB", Severity.Error);
+        }
+        finally { _loading = false; }
+    }
+
+    public void Dispose() => Session.ClearPrintContext();
+}
